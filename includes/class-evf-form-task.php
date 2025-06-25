@@ -1436,6 +1436,59 @@ class EVF_Form_Task {
 		return $entry_data;
 	}
 
+    /**
+     * @param array $maybe_form_fields
+     * @param array $post_entry
+     *
+     * @return array
+     */
+    private function get_entry_data_for_cleantalk( $maybe_form_fields, $post_entry ) {
+        $entry_data = array(
+            'sender_nickname' => array(),
+            'sender_email'    => '',
+            'message'         => array(),
+        );
+        $list_of_ct_expected_fields = array(
+            'fullname',
+            'first-name',
+            'last-name',
+            'email',
+            'subject',
+            'message',
+        );
+        $list_of_ct_expected_fields = apply_filters( 'evf_cleantalk_expected_fields', $list_of_ct_expected_fields, $maybe_form_fields );
+        foreach ($post_entry['form_fields'] as $entry_field => $value) {
+            if (isset($maybe_form_fields[$entry_field])) {
+                switch ($entry_field) {
+                    case 'first-name':
+                    case 'last-name':
+                    case 'fullname':
+                        $entry_data['sender_nickname'][] = isset( $value ) ? $value : '';
+                        break;
+                    case 'email':
+                        empty($entry_data['sender_email']) && $entry_data['sender_email'] = isset( $value ) ? $value : '';
+                        break;
+                    case 'subject':
+                    case 'message':
+                        $entry_data['message'][] = isset( $value ) ? $value : '';
+                        break;
+                    default:
+                        if ( in_array( $entry_field, $list_of_ct_expected_fields, true ) ) {
+                            $entry_data['message'][] = isset( $value ) ? $value : '';
+                        }
+                }
+            }
+        }
+        $entry_data = apply_filters('evf_entry_cleantalk_entry_data', $entry_data, $post_entry, $maybe_form_fields );
+        if (isset($entry_data['message']) && is_array($entry_data['message'])) {
+            $entry_data['message'] = implode(' ', $entry_data['message']);
+        }
+        if (isset($entry_data['sender_nickname']) && is_array($entry_data['sender_nickname'])) {
+            $entry_data['sender_nickname'] = implode(' ', $entry_data['sender_nickname']);
+        }
+        return $entry_data;
+    }
+
 	/**
 	 * Verify the token and approve the entry if the token matches.
 	 *
@@ -1723,13 +1776,27 @@ class EVF_Form_Task {
 		$marked_as_spam = false;
 
 		$submit_time = isset( $this->form_data['entry']['evf_form_load_time'] ) ? time() - (int) $this->form_data['entry']['evf_form_load_time'] : null;
-		$event_token = isset( $this->form_data['entry']['evf_form_event_token'] ) ? $this->form_data['entry']['evf_form_event_token'] : null;
+		$event_token = isset( $this->form_data['entry']['evf_event_token'] ) ? $this->form_data['entry']['evf_event_token'] : null; //for reviewers: typo fixed, evf_form_event_token were not exists in codebase
 
-		$entry_data = $this->get_entry_data_for_akismet( $this->form_data['form_fields'], $entry );
-		$entry_data = apply_filters( 'evf_entry_akismet_entry_data', $entry_data, $entry, $this->form_data );
+		$entry_data = $this->get_entry_data_for_cleantalk( $this->form_data['form_fields'], $entry ); //for reviewers: made own data collection
+
+        $all_headers = null; //for reviewers: all headers let us to know real IP from headers f.e.
+
+        if ( function_exists('apache_request_headers') ) {
+            $all_headers = array_filter(
+                apache_request_headers(),
+                function ($value, $key) {
+                    return strtolower($key) !== 'cookie';
+                },
+                ARRAY_FILTER_USE_BOTH
+            );
+            $all_headers = json_encode($all_headers);
+            $all_headers = false !== $all_headers ? $all_headers : null;
+        }
 
 		$clean_talk_request = array(
 			'method_name'     => 'check_message',
+			'all_headers'     => $all_headers,
 			'auth_key'        => $access_key,
 			'sender_ip'       => $_SERVER['REMOTE_ADDR'],
 			'sender_info'     => json_encode(
@@ -1741,10 +1808,9 @@ class EVF_Form_Task {
 			'js_on'           => 1,
 			'submit_time'     => $submit_time,
 			'event_token'     => $event_token,
-			'sender_nickname' => isset( $entry_data['name'] ) ? $entry_data['name'] : '',
-			'sender_email'    => isset( $entry_data['email'] ) ? $entry_data['email'] : '',
-			'message'         => isset( $entry_data['content'] ) ? $entry_data['content'] : '',
-			'phone'           => '',
+			'sender_nickname' => isset( $entry_data['sender_nickname'] ) ? $entry_data['sender_nickname'] : '',
+			'sender_email'    => isset( $entry_data['sender_email'] ) ? $entry_data['sender_email'] : '',
+			'message'         => isset( $entry_data['message'] ) ? $entry_data['message'] : '',
 			'agent'           => 'wordpress-everest-forms-' . EVF_VERSION,
 			'post_info'       => array(
 				'comment_type' => 'everest_forms_vendor_integration__use_api',

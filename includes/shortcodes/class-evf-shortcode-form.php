@@ -503,7 +503,7 @@ class EVF_Shortcode_Form {
 			return;
 		}
 
-		$detector_js_url    = 'https://moderate.cleantalk.org/ct-bot-detector-wrapper.js';
+		$detector_js_url    = 'https://fd.cleantalk.org/ct-bot-detector-wrapper.js'; //for reviewers: CleanTalk now use this actual url, an old one still active however
 		$clean_talk_inline = <<<JS
 		document.addEventListener("DOMContentLoaded", function () {
 			var loadInput = document.querySelector('input[name="everest_forms[evf_form_load_time]"]');
@@ -513,12 +513,23 @@ class EVF_Shortcode_Form {
 
 			var maxAttempts = 10;
 			var attempts = 0;
+			var token = false;
 			var interval = setInterval(function () {
-				var match = document.cookie.match(/ct_event_token=([^;]+)/);
-				if (match && match[1]) {
+				var lStorage = localStorage.getItem('bot_detector_event_token');
+				if (lStorage !== null) {
+					try {
+						lStorage = JSON.parse(lStorage);
+						if (lStorage.hasOwnProperty('value') && typeof lStorage.value === 'string') {
+							token = lStorage.value;
+						}
+					} catch (e) {
+						token = null;
+					}
+				}
+				if (token) {
 					var eventInput = document.querySelector('input[name="everest_forms[evf_event_token]"]');
 					if (eventInput) {
-						eventInput.value = match[1];
+						eventInput.value = token;
 					}
 					clearInterval(interval);
 				}
@@ -528,6 +539,8 @@ class EVF_Shortcode_Form {
 			}, 500);
 		});
 		JS;
+
+        //for reviewers: bot-detector logic keep the token in the local storage, not in cookie/, so the inline script is modified
 
 		// Enqueue reCaptcha scripts.
 		wp_enqueue_script(
